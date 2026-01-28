@@ -32,4 +32,14 @@ go run ./cmd/tester
 ```
 Secara default akan memanggil beberapa test case HP (sukses/gagal/pending) untuk inquiry dan payment ke endpoint lokal.
 
+## Sejarah Perubahan
+
+### [Unreleased]
+
+#### Ditambahkan
+- Query parameter `counter` untuk endpoint prepaid (`/api/otomax/prepaid`)
+  - Jika request memiliki parameter `counter=1`, aplikasi akan meneruskan ke Digiflazz dengan `ref_id=C1-[ref_id]`
+  - Format: `C{counter}-{ref_id}` (contoh: `counter=1` dan `ref_id=ABC123` → Digiflazz menerima `C1-ABC123`)
+  - Jika `counter` tidak ada atau `counter=0`, `ref_id` digunakan tanpa modifikasi
+
 

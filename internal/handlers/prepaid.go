@@ -48,6 +48,7 @@ func (h *PrepaidHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing ref_id", http.StatusBadRequest)
 		return
 	}
+	counter := q.Get("counter") // Read counter parameter
 	// max_price is optional. If provided by OtomaX, it's guaranteed to be an integer.
 	// If not provided or parsing fails, default to 0 (will fetch from DB later if needed).
 	maxPriceStr := q.Get("max_price")
@@ -111,8 +112,11 @@ func (h *PrepaidHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		maxRetries := 10
 		retryDelay := 1 * time.Second
 
+		// Build refID for Digiflazz (with counter prefix if provided)
+		digiflazzRefID := buildRefIDForDigiflazz(refID, counter)
+
 		for attempt := 1; attempt <= maxRetries; attempt++ {
-			res, err = h.dgf.Topup(r.Context(), productCode, customerNo, refID, 0)
+			res, err = h.dgf.Topup(r.Context(), productCode, customerNo, digiflazzRefID, 0)
 			if err != nil {
 				h.logger.Errorf("digiflazz topup error (attempt %d/%d) ref_id=%s code=%s customer_no=%s err=%v", attempt, maxRetries, refID, productCode, customerNo, err)
 				if attempt < maxRetries {
@@ -257,7 +261,10 @@ func (h *PrepaidHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			maxPriceInt = harga
 		}
 	}
-	res, err := h.dgf.Topup(ctx, productCode, customerNo, refID, maxPriceInt)
+
+	// Build refID for Digiflazz (with counter prefix if provided)
+	digiflazzRefID := buildRefIDForDigiflazz(refID, counter)
+	res, err := h.dgf.Topup(ctx, productCode, customerNo, digiflazzRefID, maxPriceInt)
 	if err != nil {
 		http.Error(w, "topup failed", http.StatusBadGateway)
 		return
@@ -280,6 +287,15 @@ func (h *PrepaidHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // reuse JSON responder from otomax.go via small wrapper to avoid export
+// buildRefIDForDigiflazz modifies refID based on counter parameter
+// If counter is provided, returns C{counter}-{refID}, otherwise returns refID as-is
+func buildRefIDForDigiflazz(refID, counter string) string {
+	if counter != "" && counter != "0" {
+		return fmt.Sprintf("C%s-%s", counter, refID)
+	}
+	return refID
+}
+
 func (h *PrepaidHandler) respond(w http.ResponseWriter, code int, body any) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(body)
