@@ -23,10 +23,11 @@ type Config struct {
 	OtomaxCallbackURL string
 
 	// OtomaX API
-	OtomaxAPIBaseURL string
-	OtomaxAppID      string
-	OtomaxAppKey     string
-	OtomaxDevKey     string
+	OtomaxAPIBaseURL             string
+	OtomaxAppID                  string
+	OtomaxAppKey                 string
+	OtomaxDevKey                 string
+	OtomaxInsertInboxPesanFormat string // Format pesan InsertInbox dari .env; placeholder: {{ref_id}}, {{hp}}, {{pulsa_code}}, {{price}}, {{username}}, {{commands}}
 
 	// Security
 	AllowedSourceIPs      []string
@@ -79,6 +80,7 @@ func Load() (*Config, error) {
 	cfg.OtomaxAppID = getEnv("OTOMAX_APP_ID", "")
 	cfg.OtomaxAppKey = getEnv("OTOMAX_APP_KEY", "")
 	cfg.OtomaxDevKey = getEnv("OTOMAX_DEV_KEY", "")
+	cfg.OtomaxInsertInboxPesanFormat = getEnv("OTOMAX_INSERTINBOX_PESAN_FORMAT", "{{pulsa_code}}.{{hp}}.{{price}}.{{ref_id}}")
 
 	cfg.AllowedSourceIPs = splitCSV(getEnv("ALLOWED_SOURCE_IPS", ""))
 	cfg.OtomaxSignatureSecret = getEnv("OTOMAX_SIGNATURE_SECRET", "")

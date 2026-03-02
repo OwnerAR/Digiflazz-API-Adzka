@@ -66,6 +66,10 @@ func NewServer(cfg *config.Config, logger *logging.Logger) *Server {
     prepaidHandler := handlers.NewPrepaidHandler(cfg, logger, sqlite, mssql, dgf)
     mux.Handle("/api/otomax/prepaid", prepaidHandler)
 
+    // DigiFlazz Seller API (incoming topup): validasi sign, price >= harga_jual, forward ke OtomaX InsertInbox
+    sellerTopupHandler := handlers.NewSellerTopupHandler(cfg, logger, sqlite, mssql, otomaxClient)
+    mux.Handle("/api/seller/topup", sellerTopupHandler)
+
     // Background scheduler for product sync
     if cfg.ProductSyncEnabled {
         interval := time.Duration(cfg.ProductSyncIntervalMin) * time.Minute

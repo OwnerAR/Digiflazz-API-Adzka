@@ -381,10 +381,115 @@ func (c *Client) TambahSaldo(ctx context.Context, req TambahSaldoRequest) (*Tamb
         }
     }
     
-    if !result.OK {
+	if !result.OK {
         return nil, fmt.Errorf("otomax TambahSaldo failed: %s", result.Desc)
     }
     
+    return &result, nil
+}
+
+// InsertInboxRequest represents request for InsertInbox (forward ke OtomaX)
+// DigiFlazz topup: map ref_id, hp, pulsa_code, price ke pesan; pengirim = hp; kode_reseller dari config/GetTrx
+type InsertInboxRequest struct {
+    Pesan        string `json:"pesan"`         // Format pesan (contoh: "tiket.100000.1234" atau "pulsa_code.hp.price.ref_id")
+    KodeReseller string `json:"kode_reseller"`
+    Pengirim     string `json:"pengirim"`      // Nomor pengirim (biasanya hp/nomor pelanggan)
+    TipePengirim string `json:"tipe_pengirim"` // "W" atau sesuai kontrak OtomaX
+}
+
+// InsertInboxResponse represents response from InsertInbox
+type InsertInboxResponse struct {
+    OK   bool   `json:"ok"`
+    Desc string `json:"desc"`
+}
+
+// InsertInbox forwards a message to OtomaX inbox (untuk forward request DigiFlazz ke OtomaX)
+func (c *Client) InsertInbox(ctx context.Context, req InsertInboxRequest) (*InsertInboxResponse, error) {
+    body, err := json.Marshal(req)
+    if err != nil {
+        return nil, fmt.Errorf("otomax InsertInbox marshal error: %w", err)
+    }
+    token, err := c.generateToken(body)
+    if err != nil {
+        return nil, fmt.Errorf("otomax generate token error: %w", err)
+    }
+    url, err := c.buildURL("InsertInbox")
+    if err != nil {
+        return nil, fmt.Errorf("otomax URL error: %w", err)
+    }
+    httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+    if err != nil {
+        return nil, fmt.Errorf("otomax InsertInbox request error: %w", err)
+    }
+    httpReq.Header.Set("Content-Type", "application/json")
+    httpReq.Header.Set("Token", token)
+    resp, err := c.httpClient.Do(httpReq)
+    if err != nil {
+        return nil, fmt.Errorf("otomax InsertInbox request error: %w", err)
+    }
+    defer resp.Body.Close()
+    bodyBytes, _ := io.ReadAll(resp.Body)
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        return nil, fmt.Errorf("otomax InsertInbox http error %d: %s", resp.StatusCode, string(bodyBytes))
+    }
+    var result InsertInboxResponse
+    if err := json.Unmarshal(bodyBytes, &result); err != nil {
+        return nil, fmt.Errorf("otomax InsertInbox decode error: %w body=%s", err, string(bodyBytes))
+    }
+    return &result, nil
+}
+
+// QueryProdukRequest represents request for QueryProduk (GetProduct)
+type QueryProdukRequest struct {
+    Kode string `json:"kode"` // Kode produk (pulsa_code / buyer_sku_code)
+}
+
+// QueryProdukResponse represents response from QueryProduk (harga_jual untuk pembandingan price)
+type QueryProdukResponse struct {
+    OK     bool `json:"ok"`
+    Result struct {
+        Kode      string  `json:"kode,omitempty"`
+        HargaJual float64 `json:"harga_jual,omitempty"`
+        HargaBeli float64 `json:"harga_beli,omitempty"`
+        Nama      string  `json:"nama,omitempty"`
+        // Field lain dari OtomaX bisa ditambah sesuai response aktual
+    } `json:"result"`
+}
+
+// QueryProduk gets product by kode (untuk pembandingan: price DigiFlazz tidak boleh lebih murah dari harga_jual)
+func (c *Client) QueryProduk(ctx context.Context, kode string) (*QueryProdukResponse, error) {
+    payload := QueryProdukRequest{Kode: kode}
+    body, err := json.Marshal(payload)
+    if err != nil {
+        return nil, fmt.Errorf("otomax QueryProduk marshal error: %w", err)
+    }
+    token, err := c.generateToken(body)
+    if err != nil {
+        return nil, fmt.Errorf("otomax generate token error: %w", err)
+    }
+    url, err := c.buildURL("QueryProduk")
+    if err != nil {
+        return nil, fmt.Errorf("otomax URL error: %w", err)
+    }
+    httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+    if err != nil {
+        return nil, fmt.Errorf("otomax QueryProduk request error: %w", err)
+    }
+    httpReq.Header.Set("Content-Type", "application/json")
+    httpReq.Header.Set("Token", token)
+    resp, err := c.httpClient.Do(httpReq)
+    if err != nil {
+        return nil, fmt.Errorf("otomax QueryProduk request error: %w", err)
+    }
+    defer resp.Body.Close()
+    bodyBytes, _ := io.ReadAll(resp.Body)
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        return nil, fmt.Errorf("otomax QueryProduk http error %d: %s", resp.StatusCode, string(bodyBytes))
+    }
+    var result QueryProdukResponse
+    if err := json.Unmarshal(bodyBytes, &result); err != nil {
+        return nil, fmt.Errorf("otomax QueryProduk decode error: %w body=%s", err, string(bodyBytes))
+    }
     return &result, nil
 }
 

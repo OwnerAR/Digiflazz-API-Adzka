@@ -5,8 +5,9 @@ import "time"
 type TransactionAction string
 
 const (
-    ActionInquiry TransactionAction = "inquiry"
-    ActionPayment TransactionAction = "payment"
+    ActionInquiry    TransactionAction = "inquiry"
+    ActionPayment    TransactionAction = "payment"
+    ActionSellerTopup TransactionAction = "seller_topup" // Request masuk dari DigiFlazz Seller, forward ke OtomaX
 )
 
 type TransactionStatus string
