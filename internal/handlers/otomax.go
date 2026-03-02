@@ -619,19 +619,16 @@ func (h *OtomaxHandler) handlePayment(ctx context.Context, w http.ResponseWriter
 	}
 
 	hargaBeli := inqRes.BillAmount
-	// Get harga_jual from product
-	// harga = harga_beli + harga_jual, so harga_jual = harga - harga_beli
+	// totalHarga = harga_beli + harga_jual. Ambil harga_jual: utamakan dari produk, fallback transaksi.harga = harga_jual (langsung, jangan dikurangi hargaBeli supaya tidak minus)
 	hargaJual := int64(0)
-	if tx.Result.Harga > 0 && hargaBeli > 0 {
-		// harga_jual = harga (total) - harga_beli
-		hargaJual = int64(tx.Result.Harga) - hargaBeli
-	} else {
-		// Fallback: try MSSQL if available
-		if h.mssql != nil {
-			if hj, err := h.mssql.GetProductHargaJualByCode(ctx, productCode); err == nil {
-				hargaJual = hj
-			}
+	if h.mssql != nil {
+		if hj, err := h.mssql.GetProductHargaJualByCode(ctx, productCode); err == nil && hj > 0 {
+			hargaJual = hj
 		}
+	}
+	if hargaJual == 0 && tx.Result.Harga > 0 {
+		// transaksi.harga = harga_jual di transaksi (langsung pakai)
+		hargaJual = int64(tx.Result.Harga)
 	}
 	totalHarga = hargaBeli + hargaJual
 	kodeReseller = tx.Result.KodeReseller
@@ -729,14 +726,19 @@ func (h *OtomaxHandler) handlePayment(ctx context.Context, w http.ResponseWriter
 	if available < 0 {
 		available = 0
 	}
-	if available < totalHarga {
-		h.logger.Errorf("insufficient reseller balance ref_id=%s kode_reseller=%s available=%d total_harga=%d", refID, kodeReseller, available, totalHarga)
+	// Validasi terhadap jumlah yang benar-benar didebit dari saldo reseller (biasanya harga_beli/cost), bukan hanya total_harga
+	amountToDebit := hargaBeli
+	if totalHarga > amountToDebit {
+		amountToDebit = totalHarga
+	}
+	if available < amountToDebit {
+		h.logger.Errorf("insufficient reseller balance ref_id=%s kode_reseller=%s available=%d amount_to_debit=%d (harga_beli=%d total_harga=%d)", refID, kodeReseller, available, amountToDebit, hargaBeli, totalHarga)
 		errorData := map[string]any{
 			"ref_id":         refID,
 			"buyer_sku_code": productCode,
 			"customer_no":    customerNo,
 			"status":         "Gagal",
-			"message":        fmt.Sprintf("Saldo reseller tidak cukup (tersedia: %d, dibutuhkan: %d)", available, totalHarga),
+			"message":        fmt.Sprintf("Saldo reseller tidak cukup (tersedia: %d, dibutuhkan: %d)", available, amountToDebit),
 			"rc":             "40",
 		}
 		h.respond(w, http.StatusOK, map[string]any{"data": errorData, "message": fmt.Sprintf("Trx ID #%s Saldo reseller tidak cukup", refID)})
@@ -834,8 +836,12 @@ func (h *OtomaxHandler) handlePayment(ctx context.Context, w http.ResponseWriter
 		if available < 0 {
 			available = 0
 		}
-		if available < totalHarga {
-			h.logger.Errorf("background saldo validation insufficient balance ref_id=%s kode_reseller=%s available=%d total_harga=%d - payment cancelled", refID, kodeReseller, available, totalHarga)
+		amountToDebit := hargaBeli
+		if totalHarga > amountToDebit {
+			amountToDebit = totalHarga
+		}
+		if available < amountToDebit {
+			h.logger.Errorf("background saldo validation insufficient balance ref_id=%s kode_reseller=%s available=%d amount_to_debit=%d (harga_beli=%d total_harga=%d) - payment cancelled", refID, kodeReseller, available, amountToDebit, hargaBeli, totalHarga)
 			
 			// Update transaction status to failed
 			failedTx := &domain.Transaction{
@@ -848,7 +854,7 @@ func (h *OtomaxHandler) handlePayment(ctx context.Context, w http.ResponseWriter
 				Margin:          h.cfg.DefaultMargin,
 				SellingPrice:    totalHarga,
 				ExternalStatus:  "Gagal",
-				ExternalMessage: fmt.Sprintf("Saldo reseller tidak cukup (tersedia: %d, dibutuhkan: %d)", available, totalHarga),
+				ExternalMessage: fmt.Sprintf("Saldo reseller tidak cukup (tersedia: %d, dibutuhkan: %d)", available, amountToDebit),
 			}
 			if err := h.sqlite.UpsertInquiry(bgCtx, failedTx); err != nil {
 				h.logger.Errorf("failed to update payment status to failed ref_id=%s err=%v", refID, err)
@@ -857,7 +863,7 @@ func (h *OtomaxHandler) handlePayment(ctx context.Context, w http.ResponseWriter
 		}
 
 		// Saldo is sufficient, proceed with payment
-		h.logger.Infof("background saldo validation passed ref_id=%s kode_reseller=%s available=%d total_harga=%d - proceeding with payment", refID, kodeReseller, available, totalHarga)
+		h.logger.Infof("background saldo validation passed ref_id=%s kode_reseller=%s available=%d amount_to_debit=%d - proceeding with payment", refID, kodeReseller, available, amountToDebit)
 		payRes, err := h.dgf.Payment(bgCtx, productCode, customerNo, refID)
 		if err != nil {
 			h.logger.Errorf("digiflazz payment error ref_id=%s err=%v", refID, err)
